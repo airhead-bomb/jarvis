@@ -83,25 +83,25 @@ def _call_mistral(messages: list[dict]) -> str:
 
 
 def _ask_ai(history: list[dict], prompt: str) -> str:
-    """Gemini → Groq → Mistral 순서로 시도. 하나가 막히면 다음으로 자동 전환."""
+    """Groq → Gemini → Mistral 순서로 시도. 하나가 막히면 다음으로 자동 전환.
+    (Gemini 무료 티어는 하루 요청 수가 너무 적어서, 넉넉한 Groq를 1차로 둠)"""
     errors = []
-
-    try:
-        return _call_gemini(prompt)
-    except Exception as e:
-        errors.append(f"Gemini: {e}")
-
     messages = _to_openai_messages(history)
 
     try:
-        reply = _call_groq(messages)
-        return f"{reply}\n\n_(Gemini가 혼잡해서 Groq로 대신 답했어요)_"
+        return _call_groq(messages)
     except Exception as e:
         errors.append(f"Groq: {e}")
 
     try:
+        reply = _call_gemini(prompt)
+        return f"{reply}\n\n_(Groq가 안 돼서 Gemini로 대신 답했어요)_"
+    except Exception as e:
+        errors.append(f"Gemini: {e}")
+
+    try:
         reply = _call_mistral(messages)
-        return f"{reply}\n\n_(Gemini·Groq 둘 다 안 돼서 Mistral로 대신 답했어요)_"
+        return f"{reply}\n\n_(Groq·Gemini 둘 다 안 돼서 Mistral로 대신 답했어요)_"
     except Exception as e:
         errors.append(f"Mistral: {e}")
 
