@@ -12,7 +12,7 @@ MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")  # 없어도 동작은 함 (
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 GEMINI_MODEL = "gemini-3.6-flash"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"  # llama-3.3-70b-versatile가 2026.08 은퇴돼서 후속 모델로 교체
 MISTRAL_MODEL = "mistral-large-latest"
 
 SYSTEM_PROMPT = (
