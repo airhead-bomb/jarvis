@@ -1,0 +1,18 @@
+{
+  "name": "JARVIS",
+  "short_name": "JARVIS",
+  "description": "개인용 AI 비서 자비스",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
