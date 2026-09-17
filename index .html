@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>JARVIS</title>
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/static/icon.png" />
+<meta name="theme-color" content="#0f1115" />
+<style>
+  :root {
+    --bg: #0f1115;
+    --surface: #1a1d24;
+    --accent: #00d2b4;
+    --text: #eef1f4;
+    --text-dim: #8a8f98;
+    --bubble-user: #2a3038;
+    --danger: #ff5f56;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Pretendard", "Apple SD Gothic Neo", Roboto, sans-serif;
+  }
+  #app {
+    display: flex; flex-direction: column;
+    height: 100vh; max-width: 600px; margin: 0 auto;
+  }
+  header {
+    padding: env(safe-area-inset-top, 16px) 20px 14px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid #22262e;
+  }
+  header .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; }
+  header .sub { font-size: 12px; color: var(--text-dim); margin-left: auto; }
+
+  /* 헤더의 음성 답변 on/off 토글 */
+  .speaker-toggle {
+    background: none; border: none; color: var(--text-dim);
+    font-size: 17px; padding: 4px 6px; cursor: pointer;
+  }
+  .speaker-toggle.on { color: var(--accent); }
+
+  #messages {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .msg {
+    max-width: 78%; padding: 10px 14px; border-radius: 16px;
+    line-height: 1.5; font-size: 15px; white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.jarvis {
+    background: var(--surface); align-self: flex-start;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.user {
+    background: var(--bubble-user); align-self: flex-end;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.thinking { color: var(--text-dim); font-style: italic; }
+
+  #inputbar {
+    position: relative;
+    display: flex; gap: 8px; align-items: center;
+    padding: 12px 16px calc(env(safe-area-inset-bottom, 12px) + 8px);
+    border-top: 1px solid #22262e; background: var(--bg);
+  }
+
+  /* + 버튼 눌렀을 때 위로 뜨는 메뉴 */
+  #attachMenu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 16px;
+    background: var(--surface);
+    border: 1px solid #2a2f38;
+    border-radius: 16px;
+    padding: 6px;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  #attachMenu.open { display: flex; }
+  #attachMenu button {
+    display: flex; align-items: center; gap: 10px;
+    background: none; border: none; color: var(--text);
+    padding: 10px 14px; border-radius: 10px;
+    font-size: 14px; text-align: left; white-space: nowrap;
+    cursor: pointer;
+  }
+  #attachMenu button:active { background: #22262e; }
+  #attachMenu button:disabled { color: var(--text-dim); cursor: default; }
+
+  #plusBtn.listening { background: var(--danger); color: #fff; animation: pulse 1.2s infinite; }
+  #inputbar input {
+    flex: 1; border-radius: 22px; border: 1px solid #2a2f38;
+    background: var(--surface); color: var(--text);
+    padding: 12px 16px; font-size: 15px; outline: none; min-width: 0;
+  }
+  #inputbar button {
+    flex-shrink: 0;
+    width: 46px; height: 46px; border-radius: 50%; border: none;
+    background: var(--accent); color: #08201c; font-size: 18px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  #inputbar button:active { transform: scale(0.95); }
+
+  #plusBtn { background: var(--surface); color: var(--text-dim); border: 1px solid #2a2f38; font-size: 22px; }
+
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255,95,86,0.6); }
+    70%  { box-shadow: 0 0 0 12px rgba(255,95,86,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,95,86,0); }
+  }
+
+  #status {
+    text-align: center; font-size: 12px; color: var(--text-dim);
+    min-height: 16px; padding-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="dot"></div>
+    <h1>JARVIS</h1>
+    <button id="speakerToggle" class="speaker-toggle" title="음성 답변 켜기/끄기">🔇</button>
+    <div class="sub">Groq · Gemini</div>
+  </header>
+  <div id="messages"></div>
+  <div id="status"></div>
+  <div id="inputbar">
+    <div id="attachMenu">
+      <button id="menuVoice">🎤 말로 입력하기</button>
+      <button id="menuImage" disabled>🖼️ 이미지 첨부 (곧 추가돼요)</button>
+      <button id="menuFile" disabled>📄 파일 첨부 (곧 추가돼요)</button>
+    </div>
+    <button id="plusBtn" title="더보기">＋</button>
+    <input id="input" type="text" placeholder="자비스에게 말해보세요..." autocomplete="off" />
+    <button id="send" title="보내기">➤</button>
+  </div>
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('send');
+  const plusBtn = document.getElementById('plusBtn');
+  const attachMenu = document.getElementById('attachMenu');
+  const menuVoice = document.getElementById('menuVoice');
+  const menuImage = document.getElementById('menuImage');
+  const menuFile = document.getElementById('menuFile');
+  const statusEl = document.getElementById('status');
+  const speakerBtn = document.getElementById('speakerToggle');
+
+  function closeAttachMenu() { attachMenu.classList.remove('open'); }
+
+  plusBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (plusBtn.classList.contains('listening')) return; // 듣는 중이면 아래쪽 별도 핸들러가 처리
+    attachMenu.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!attachMenu.contains(e.target) && e.target !== plusBtn) closeAttachMenu();
+  });
+
+  function showComingSoon(label) {
+    statusEl.textContent = `${label}은 곧 추가돼요!`;
+    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+  }
+  menuImage.addEventListener('click', () => { closeAttachMenu(); showComingSoon('이미지 인식'); });
+  menuFile.addEventListener('click', () => { closeAttachMenu(); showComingSoon('파일 인식'); });
+
+  // 이 폰(브라우저)만의 세션 id를 만들어서 서버 쪽 대화 기억을 구분함
+  let sessionId = localStorage.getItem('jarvis_session_id');
+  if (!sessionId) {
+    sessionId = 'web-' + Math.random().toString(36).slice(2);
+    localStorage.setItem('jarvis_session_id', sessionId);
+  }
+
+  // 음성 답변(TTS) 켜짐 여부를 기억해둠
+  let speakEnabled = localStorage.getItem('jarvis_speak') === 'true';
+  function renderSpeakerBtn() {
+    speakerBtn.textContent = speakEnabled ? '🔊' : '🔇';
+    speakerBtn.classList.toggle('on', speakEnabled);
+  }
+  renderSpeakerBtn();
+
+  speakerBtn.addEventListener('click', () => {
+    speakEnabled = !speakEnabled;
+    localStorage.setItem('jarvis_speak', speakEnabled);
+    renderSpeakerBtn();
+    if (!speakEnabled) window.speechSynthesis.cancel();
+  });
+
+  function addMessage(role, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  addMessage('jarvis', '자비스 온라인. 무엇을 도와드릴까요?');
+
+  // ── 음성 출력 (TTS) ──
+  function speak(text) {
+    if (!speakEnabled || !('speechSynthesis' in window)) return;
+    // 괄호 안 안내문구(_(Groq가 안 돼서...)_) 같은 건 읽지 않게 정리
+    const clean = text.replace(/_\(.*?\)_/gs, '').trim();
+    if (!clean) return;
+
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = 'ko-KR';
+    u.rate = 1.05;
+    window.speechSynthesis.speak(u);
+  }
+
+  // ── 음성 입력 (STT) ──
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let listening = false;
+
+  if (!SR) {
+    menuVoice.disabled = true;
+    menuVoice.textContent = '🎤 음성 입력 (이 브라우저는 지원 안 함)';
+  } else {
+    recognition = new SR();
+    recognition.lang = 'ko-KR';
+    recognition.interimResults = true;   // 말하는 도중에도 실시간으로 글자가 보이게
+    recognition.continuous = false;      // 한 문장 말하면 자동으로 끝남
+
+    recognition.onstart = () => {
+      listening = true;
+      plusBtn.classList.add('listening');
+      statusEl.textContent = '듣고 있어요...';
+    };
+
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      inputEl.value = transcript;
+
+      // 최종 결과가 나오면 자동으로 전송
+      const last = event.results[event.results.length - 1];
+      if (last.isFinal && transcript.trim()) {
+        recognition.stop();
+        sendMessage();
+      }
+    };
+
+    recognition.onerror = (event) => {
+      statusEl.textContent =
+        event.error === 'not-allowed'
+          ? '마이크 권한이 필요해요. 브라우저 설정에서 허용해주세요.'
+          : '음성 인식 오류: ' + event.error;
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    };
+
+    recognition.onend = () => {
+      listening = false;
+      plusBtn.classList.remove('listening');
+      if (statusEl.textContent === '듣고 있어요...') statusEl.textContent = '';
+    };
+
+    menuVoice.addEventListener('click', () => {
+      closeAttachMenu();
+      if (listening) {
+        recognition.stop();
+      } else {
+        inputEl.value = '';
+        try {
+          recognition.start();
+        } catch (e) {
+          // 이미 시작된 상태에서 또 누른 경우 — 무시해도 됨
+        }
+      }
+    });
+
+    // + 버튼을 듣고 있는 도중에 누르면 바로 중지되게
+    plusBtn.addEventListener('click', () => {
+      if (listening) recognition.stop();
+    });
+  }
+
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+    inputEl.value = '';
+    addMessage('user', text);
+
+    const thinking = addMessage('jarvis thinking', '생각 중...');
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, session_id: sessionId }),
+      });
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      const data = await res.json();
+      thinking.textContent = data.reply;
+      thinking.classList.remove('thinking');
+      speak(data.reply);
+    } catch (e) {
+      thinking.textContent = '오류가 발생했어요: ' + e.message;
+      thinking.classList.remove('thinking');
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>
