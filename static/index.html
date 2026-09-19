@@ -39,6 +39,14 @@
   header h1 { font-size: 17px; font-weight: 600; margin: 0; }
   header .sub { font-size: 12px; color: var(--text-dim); margin-left: auto; }
 
+  #voiceSelect {
+    margin-left: auto;
+    max-width: 120px;
+    background: var(--surface); color: var(--text-dim);
+    border: 1px solid #2a2f38; border-radius: 8px;
+    font-size: 11px; padding: 4px 6px;
+  }
+
   /* 헤더의 음성 답변 on/off 토글 */
   .speaker-toggle {
     background: none; border: none; color: var(--text-dim);
@@ -129,8 +137,8 @@
   <header>
     <div class="dot"></div>
     <h1>JARVIS</h1>
+    <select id="voiceSelect" title="목소리 선택"></select>
     <button id="speakerToggle" class="speaker-toggle" title="음성 답변 켜기/끄기">🔇</button>
-    <div class="sub">Groq · Gemini</div>
   </header>
   <div id="messages"></div>
   <div id="status"></div>
@@ -239,6 +247,33 @@
     if (!speakEnabled) window.speechSynthesis.cancel();
   });
 
+  const voiceSelectEl = document.getElementById('voiceSelect');
+
+  // ── 목소리 선택 ──
+  // 브라우저마다 목소리 목록이 비동기로 늦게 채워지는 경우가 많아서 onvoiceschanged로 잡아줌
+  let availableVoices = [];
+  function loadVoices() {
+    availableVoices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('ko'));
+    if (availableVoices.length === 0) {
+      // 한국어 목소리가 하나도 없는 기기 대비 — 전체 목록이라도 보여줌
+      availableVoices = window.speechSynthesis.getVoices();
+    }
+    const savedName = localStorage.getItem('jarvis_voice_name');
+    voiceSelectEl.innerHTML = availableVoices
+      .map(v => `<option value="${v.name}">${v.name.replace('Microsoft ', '').replace('Google ', '')}</option>`)
+      .join('');
+    if (savedName && availableVoices.some(v => v.name === savedName)) {
+      voiceSelectEl.value = savedName;
+    }
+  }
+  if ('speechSynthesis' in window) {
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }
+  voiceSelectEl.addEventListener('change', () => {
+    localStorage.setItem('jarvis_voice_name', voiceSelectEl.value);
+  });
+
   function addMessage(role, text) {
     const div = document.createElement('div');
     div.className = 'msg ' + role;
@@ -251,16 +286,35 @@
   addMessage('jarvis', '자비스 온라인. 무엇을 도와드릴까요?');
 
   // ── 음성 출력 (TTS) ──
+  function stripForSpeech(text) {
+    return text
+      .replace(/_\(.*?\)_/gs, '')          // _(Groq가 안 돼서...)_ 같은 안내문구
+      .replace(/```[\s\S]*?```/g, '')      // 코드블록 통째로 생략
+      .replace(/`([^`]+)`/g, '$1')          // 인라인 코드 `...` → 기호만 제거
+      .replace(/^#{1,6}\s*/gm, '')          // # 제목 기호
+      .replace(/\*\*([^*]+)\*\*/g, '$1')    // **굵게**
+      .replace(/\*([^*]+)\*/g, '$1')        // *기울임*
+      .replace(/^[-*+]\s+/gm, '')           // - 목록, * 목록
+      .replace(/^\d+\.\s+/gm, '')           // 1. 번호 목록
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [링크텍스트](주소) → 텍스트만
+      .replace(/[>|~]/g, '')                // 인용/구분 기호
+      .trim();
+  }
+
   function speak(text) {
     if (!speakEnabled || !('speechSynthesis' in window)) return;
-    // 괄호 안 안내문구(_(Groq가 안 돼서...)_) 같은 건 읽지 않게 정리
-    const clean = text.replace(/_\(.*?\)_/gs, '').trim();
+    const clean = stripForSpeech(text);
     if (!clean) return;
 
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(clean);
     u.lang = 'ko-KR';
-    u.rate = 1.05;
+    u.rate = 1.15;
+
+    const chosenName = voiceSelectEl.value;
+    const chosen = availableVoices.find(v => v.name === chosenName);
+    if (chosen) u.voice = chosen;
+
     window.speechSynthesis.speak(u);
   }
 
