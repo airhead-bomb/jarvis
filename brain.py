@@ -82,11 +82,10 @@ def _call_mistral(messages: list[dict]) -> str:
     return _call_openai_compatible("https://api.mistral.ai/v1", MISTRAL_API_KEY, MISTRAL_MODEL, messages)
 
 
-def _ask_ai(history: list[dict], prompt: str) -> str:
+def _ask_ai(messages: list[dict], prompt: str) -> str:
     """Groq → Gemini → Mistral 순서로 시도. 하나가 막히면 다음으로 자동 전환.
     (Gemini 무료 티어는 하루 요청 수가 너무 적어서, 넉넉한 Groq를 1차로 둠)"""
     errors = []
-    messages = _to_openai_messages(history)
 
     try:
         return _call_groq(messages)
@@ -117,9 +116,66 @@ def ask_jarvis(session_id: str, user_text: str) -> str:
 
     convo = "\n".join(f"{h['role']}: {h['text']}" for h in history)
     prompt = f"{SYSTEM_PROMPT}\n\n지금까지 대화:\n{convo}\n\n자비스:"
+    messages = _to_openai_messages(history)
 
-    reply = _ask_ai(history, prompt)
+    reply = _ask_ai(messages, prompt)
 
+    history.append({"role": "자비스", "text": reply})
+    _save_history(session_id, history)
+    return reply
+
+
+def ask_jarvis_with_image(session_id: str, user_text: str, image_bytes: bytes, mime_type: str) -> str:
+    """이미지를 보고 답변. 이미지 인식은 Gemini만 지원해서 Groq/Mistral 폴백은 못 씀.
+    (사진 자체는 대화 기억에 남기지 않고, '[사진: 질문내용]' 형태로만 기록함)"""
+    from google.genai import types
+
+    history = _load_history(session_id)
+    record_text = f"[사진 첨부] {user_text}" if user_text else "[사진 첨부]"
+    history.append({"role": "user", "text": record_text})
+    history = history[-MAX_TURNS:]
+
+    prompt_text = user_text or "이 사진에 뭐가 보이는지 설명해줘."
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[
+                f"{SYSTEM_PROMPT}\n\n{prompt_text}",
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            ],
+        )
+        reply = response.text or "(빈 응답이 왔어요.)"
+    except Exception as e:
+        reply = f"이미지 분석 중 오류가 발생했어요: {e}\n(이미지 인식은 현재 Gemini 하나로만 동작해서, Gemini가 막히면 대안이 없어요)"
+
+    history.append({"role": "자비스", "text": reply})
+    _save_history(session_id, history)
+    return reply
+
+
+def ask_jarvis_with_file(session_id: str, user_text: str, file_text: str, filename: str) -> str:
+    """텍스트/PDF 파일 내용을 질문에 포함시켜서 물어봄. 그냥 텍스트라 Groq/Gemini/Mistral 다 대응 가능.
+    (파일 원문 전체를 대화 기억에 영구 저장하면 용량이 커지니, 기억에는 짧은 기록만 남김)"""
+    MAX_FILE_CHARS = 12000  # 너무 길면 잘라서, 프롬프트가 지나치게 커지는 것 방지
+    trimmed = file_text[:MAX_FILE_CHARS]
+    note = "" if len(file_text) <= MAX_FILE_CHARS else "\n(내용이 길어서 앞부분만 반영했어요)"
+    file_block = (
+        f"[첨부 파일: {filename}]\n{trimmed}{note}\n\n"
+        f"위 파일 내용을 참고해서 답해줘: {user_text or '이 파일 요약해줘.'}"
+    )
+
+    history = _load_history(session_id)
+    record_text = f"[파일 첨부: {filename}] {user_text}" if user_text else f"[파일 첨부: {filename}]"
+
+    # Gemini용 prompt와 Groq/Mistral용 messages 둘 다, 방금 turn만 파일 원문이 포함된 버전으로 만듦
+    convo = "\n".join(f"{h['role']}: {h['text']}" for h in history)
+    prompt = f"{SYSTEM_PROMPT}\n\n지금까지 대화:\n{convo}\n\nuser: {file_block}\n\n자비스:"
+    messages = _to_openai_messages(history) + [{"role": "user", "content": file_block}]
+
+    reply = _ask_ai(messages, prompt)
+
+    # 기억에는 파일 원문 대신 짧은 기록만 남김
+    history.append({"role": "user", "text": record_text})
     history.append({"role": "자비스", "text": reply})
     _save_history(session_id, history)
     return reply

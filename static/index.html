@@ -136,10 +136,12 @@
   <div id="status"></div>
   <div id="inputbar">
     <div id="attachMenu">
-      <button id="menuVoice">🗣️</button>
-      <button id="menuImage" disabled>🖼️</button>
-      <button id="menuFile" disabled>📄</button>
+      <button id="menuVoice" title="말로 입력하기">🗣️</button>
+      <button id="menuImage" title="이미지 첨부">🖼️</button>
+      <button id="menuFile" title="파일 첨부 (PDF/텍스트)">📄</button>
     </div>
+    <input id="imageInput" type="file" accept="image/*" hidden />
+    <input id="fileInput" type="file" accept=".pdf,.txt,.md,.csv" hidden />
     <button id="plusBtn" title="더보기">＋</button>
     <input id="input" type="text" placeholder="자비스에게 말해보세요..." autocomplete="off" />
     <button id="send" title="보내기">➤</button>
@@ -155,6 +157,8 @@
   const menuVoice = document.getElementById('menuVoice');
   const menuImage = document.getElementById('menuImage');
   const menuFile = document.getElementById('menuFile');
+  const imageInput = document.getElementById('imageInput');
+  const fileInput = document.getElementById('fileInput');
   const statusEl = document.getElementById('status');
   const speakerBtn = document.getElementById('speakerToggle');
 
@@ -169,12 +173,49 @@
     if (!attachMenu.contains(e.target) && e.target !== plusBtn) closeAttachMenu();
   });
 
-  function showComingSoon(label) {
-    statusEl.textContent = `${label}은 곧 추가돼요!`;
-    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+  menuImage.addEventListener('click', () => { closeAttachMenu(); imageInput.click(); });
+  menuFile.addEventListener('click', () => { closeAttachMenu(); fileInput.click(); });
+
+  imageInput.addEventListener('change', () => {
+    if (imageInput.files[0]) uploadFile(imageInput.files[0], '🖼️ 사진 첨부');
+    imageInput.value = '';
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) uploadFile(fileInput.files[0], '📄 ' + fileInput.files[0].name);
+    fileInput.value = '';
+  });
+
+  async function uploadFile(fileObj, labelForBubble) {
+    const caption = inputEl.value.trim();
+    inputEl.value = '';
+    addMessage('user', caption ? `${labelForBubble}\n${caption}` : labelForBubble);
+
+    const thinking = addMessage('jarvis thinking', '파일 확인 중...');
+
+    const form = new FormData();
+    form.append('file', fileObj);
+    form.append('message', caption);
+    form.append('session_id', sessionId);
+
+    try {
+      const res = await fetch('/api/chat-upload', { method: 'POST', body: form });
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        thinking.textContent = data.error || '파일을 처리하지 못했어요.';
+      } else {
+        thinking.textContent = data.reply;
+        speak(data.reply);
+      }
+      thinking.classList.remove('thinking');
+    } catch (e) {
+      thinking.textContent = '오류가 발생했어요: ' + e.message;
+      thinking.classList.remove('thinking');
+    }
   }
-  menuImage.addEventListener('click', () => { closeAttachMenu(); showComingSoon('이미지 인식'); });
-  menuFile.addEventListener('click', () => { closeAttachMenu(); showComingSoon('파일 인식'); });
 
   // 이 폰(브라우저)만의 세션 id를 만들어서 서버 쪽 대화 기억을 구분함
   let sessionId = localStorage.getItem('jarvis_session_id');
@@ -230,7 +271,9 @@
 
   if (!SR) {
     menuVoice.disabled = true;
-    menuVoice.textContent = '🎤 음성 입력 (이 브라우저는 지원 안 함)';
+    menuVoice.textContent = '🗣️';
+    menuVoice.title = '음성 인식 미지원 브라우저예요';
+    menuVoice.disabled = true;
   } else {
     recognition = new SR();
     recognition.lang = 'ko-KR';

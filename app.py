@@ -1,12 +1,13 @@
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 
-from brain import ask_jarvis, reset_memory
+from brain import ask_jarvis, ask_jarvis_with_file, ask_jarvis_with_image, reset_memory
+from file_reader import extract_text
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -104,6 +105,37 @@ def api_reset(req: ChatRequest, request: Request):
         return JSONResponse({"error": "로그인이 필요해요."}, status_code=401)
     reset_memory(req.session_id)
     return {"ok": True}
+
+
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15MB — 무료 서버 메모리 보호용
+
+
+@app.post("/api/chat-upload")
+async def api_chat_upload(
+    request: Request,
+    message: str = Form(""),
+    session_id: str = Form("web-default"),
+    file: UploadFile = File(...),
+):
+    if not _read_session(request):
+        return JSONResponse({"error": "로그인이 필요해요."}, status_code=401)
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        return JSONResponse({"error": "파일이 너무 커요 (15MB 이하만 가능해요)."}, status_code=413)
+
+    content_type = file.content_type or ""
+
+    try:
+        if content_type.startswith("image/"):
+            reply = ask_jarvis_with_image(session_id, message, file_bytes, content_type)
+        else:
+            text = extract_text(file_bytes, content_type, file.filename or "")
+            reply = ask_jarvis_with_file(session_id, message, text, file.filename or "파일")
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+
+    return {"reply": reply}
 
 
 if __name__ == "__main__":
